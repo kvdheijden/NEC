@@ -21,17 +21,61 @@
  * SOFTWARE.
  */
 
-#ifndef NEC_LR35902_H
-#define NEC_LR35902_H
+#include "serial.h"
 
-/**
- * Reset the LR35902 CPU.
- */
-void reset_cpu(void);
+#include "GB.h"
+#include "LR35902.h"
 
-/**
- * Dispatch an operation on the cpu.
- */
-void dispatch(void);
+#define SB  0xFF01
+#define SC  0xFF02
 
-#endif /* NEC_LR35902_H */
+static uint8_t _sb = 0x00;
+static uint8_t _sc = 0x00;
+
+uint8_t serial_read_byte(uint16_t address)
+{
+    switch(address) {
+        case SC:
+            return _sc;
+        case SB:
+            if(!(_sc & 0x80)) {
+                return _sb;
+            }
+        default:
+            return 0xFF;
+    }
+}
+
+void serial_write_byte(uint16_t address, uint8_t value)
+{
+    switch (address) {
+        case SC:
+            _sc = (uint8_t) (value & 0x83);
+
+            if(_sc & 0x80) {
+                serial_transfer_initiate(_sb);
+            }
+            break;
+        case SB:
+            if((_sc & 0x80)) {
+                return;
+            }
+            _sb = value;
+            break;
+        default:
+            break;
+    }
+}
+
+void serial_transfer_complete(uint8_t data)
+{
+    _sb = data;
+    _sc &= 0x7F;
+    interrupt(SERIAL_TRANSFER);
+}
+
+void serial_reset(void)
+{
+    _sb = 0x00;
+    _sc = 0x00;
+}

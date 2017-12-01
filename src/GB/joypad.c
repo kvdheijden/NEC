@@ -21,20 +21,61 @@
  * SOFTWARE.
  */
 
+#include "joypad.h"
+#include "GB.h"
+
 #include "LR35902.h"
 
+#define _OUTPUTS_MASK   0x30
+#define _INPUTS_MASK    0x0F
 
-/**
- * Main function of the program.
- *
- * @param argc the number of command-line arguments the program was invoked with.
- * @param argv pointer to an array of character strings that contain the arguments.
- *
- * @returns integer denoting the status of the program at termination.
- *          0 means normal termination.
- */
-int main(int argc, char *argv[])
+static uint8_t _keys = 0xFF;
+static uint8_t _mask = 0x00;
+
+void key_pressed(enum GB_key key)
 {
-    argv[argc-1] = "";
-    return 0;
+    _keys &= ~key;
+    interrupt(BUTTON_PRESSED);
+}
+
+void key_released(enum GB_key key)
+{
+    _keys |= key;
+}
+
+uint8_t joypad_read_byte(uint16_t address)
+{
+    switch (address) {
+        case P1_OFFSET:
+            switch(_mask) {
+                default:
+                case 0:
+                    return 0;
+                case 1:
+                    return (uint8_t) ((_keys >> 4) & _INPUTS_MASK);
+                case 2:
+                    return (uint8_t) (_keys & _INPUTS_MASK);
+                case 3:
+                    return (uint8_t) (((_keys >> 4) & _INPUTS_MASK) | (_keys & _INPUTS_MASK));
+            }
+        default:
+            return 0xFF;
+    }
+}
+
+void joypad_write_byte(uint16_t address, uint8_t value)
+{
+    switch (address) {
+        case P1_OFFSET:
+            _mask = (uint8_t) ((value & _OUTPUTS_MASK) >> 4);
+            break;
+        default:
+            break;
+    }
+}
+
+void joypad_reset(void)
+{
+    _keys = 0xFF;
+    _mask = 0x00;
 }

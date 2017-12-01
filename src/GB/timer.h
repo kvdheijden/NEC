@@ -21,48 +21,34 @@
  * SOFTWARE.
  */
 
-#ifndef NEC_MMU_H
-#define NEC_MMU_H
+#ifndef NEC_TIMER_H
+#define NEC_TIMER_H
 
 #include <stdint.h>
 
 /**
- * Load the specified ROM into memory.
- *
- * @param filename
- */
-void load(char *filename);
-
-/**
- * Read 8-bit byte from a given address.
  *
  * @param address
  * @return
  */
-uint8_t readbyte( uint16_t address );
+uint8_t timer_read_byte(uint16_t address);
 
 /**
- * Read 16-bit word from a given address.
  *
  * @param address
- * @return
+ * @param value
  */
-uint16_t readword( uint16_t address );
+void timer_write_byte(uint16_t address, uint8_t value);
 
 /**
- * Write 8-bit byte to a given address.
  *
- * @param address
- * @param val
+ * @param clk_tics
  */
-void writebyte( uint16_t address, uint8_t val );
+void timer_update(uint8_t clk_tics);
 
 /**
- * Write 16-bit word to a given address.
  *
- * @param address
- * @param val
  */
-void writeword( uint16_t address, uint16_t val );
+void timer_reset(void);
 
-#endif /* NEC_MMU_H */
+#endif //NEC_TIMER_H

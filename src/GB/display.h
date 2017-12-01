@@ -21,16 +21,52 @@
  * SOFTWARE.
  */
 
-#define SCREEN_WIDTH_PX         160
-#define SCREEN_HEIGHT_PX        144
-#define NR_OF_AUDIO_CHANNELS    4
-#define T_CLOCK_FREQUENCY       4194304
-#define M_CLOCK_FREQUENCY       ( T_CLOCK_FREQUENCY / 4)
+#ifndef NEC_DISPLAY_H
+#define NEC_DISPLAY_H
 
-#define SRAM_SIZE               8192
-#define VRAM_SIZE               8192
+#include <stdint.h>
 
-void reset(void)
-{
+#define BG_TILE_WIDTH       8
+#define BG_TILE_HEIGHT      8
+#define BYTES_PER_TEXEL     4
+#define BYTES_PER_TILE      (BG_TILE_WIDTH * BG_TILE_HEIGHT * BYTES_PER_TEXEL)
+#define BG_NUM_TILES        256
 
-}
+#define DISPLAY_WIDTH   160
+#define DISPLAY_HEIGHT  144
+
+#define TEXTURE_DIMENSION   256
+
+struct dot {
+    float r;
+    float g;
+    float b;
+    float a;
+};
+
+struct line {
+    struct dot dots[TEXTURE_DIMENSION];
+};
+
+struct display {
+    struct line lines[TEXTURE_DIMENSION];
+};
+
+extern struct display _display;
+
+/**
+ *
+ */
+void display_setup(void);
+
+/**
+ *
+ */
+void display_frame(void);
+
+/**
+ *
+ */
+void display_teardown(void);
+
+#endif //NEC_DISPLAY_H

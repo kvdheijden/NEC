@@ -21,12 +21,16 @@
  * SOFTWARE.
  */
 
-#ifndef NEC_GPU_H
-#define NEC_GPU_H
+#ifndef NEC_CONFIG_H
+#define NEC_CONFIG_H
 
-/**
- * Reset the Graphics processing unit.
- */
-void reset_gpu(void);
+#define VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define VERSION_PATCH @PROJECT_VERSION_PATCH@
+#define VERSION_TWEAK @PROJECT_VERSION_TWEAK@
 
-#endif /* NEC_GPU_H */
+#define IS_BIG_ENDIAN @IS_BIG_ENDIAN@
+
+#define DEBUG @IS_DEBUG@
+
+#endif //NEC_CONFIG_H

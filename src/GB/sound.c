@@ -21,23 +21,20 @@
  * SOFTWARE.
  */
 
-#include "GPU.h"
+#include "sound.h"
 
-enum gpu_mode {
-    HB  = 0,
-    VB  = 1,
-    OAM = 2,
-    VRAM = 3
-};
-
-struct gpu {
-    enum gpu_mode _mode;
-};
-
-static struct gpu _gpu;
-
-
-void reset_gpu(void)
+void sound_setup(void)
 {
-    _gpu._mode = HB;
+
 }
+
+void sound_frame(void)
+{
+
+}
+
+void sound_teardown(void)
+{
+
+}
+
