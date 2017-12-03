@@ -49,8 +49,7 @@ void sync_frame(void)
 void init_window(void)
 {
     // Initialise GLFW
-    if( !glfwInit() )
-    {
+    if( !glfwInit() ) {
         fprintf( stderr, "Failed to initialize GLFW\n" );
         exit(EXIT_FAILURE);
     }
@@ -70,7 +69,8 @@ void init_window(void)
         glfwTerminate();
         exit(EXIT_FAILURE);
     }
-    glfwMakeContextCurrent(window); // Initialize GLEW
+    glfwMakeContextCurrent(window);
+    glfwSwapInterval(0);
 }
 
 int main(int argc, char *argv[])
@@ -80,9 +80,8 @@ int main(int argc, char *argv[])
         printf("argv[%d]: %s\n", i, argv[i]);
     }
 
-    if(argc < 3) {
-        printf("Please specify the BIOS file as first argument, and the ROM file as second argument.\n");
-        printf("An optional 3rd arguments with a save file can be added.\n");
+    if(argc < 2) {
+        printf("Please specify the BIOS file as first argument.\n");
         return EXIT_FAILURE;
     }
 
@@ -93,7 +92,7 @@ int main(int argc, char *argv[])
     GB_load_bios(argv[1]);
     if(argc == 3) {
         GB_load_cartridge(argv[2], NULL);
-    } else {
+    } else if(argc == 4) {
         GB_load_cartridge(argv[2], argv[3]);
     }
 

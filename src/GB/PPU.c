@@ -23,6 +23,8 @@
 
 #include "PPU.h"
 
+#include <stdbool.h>
+
 #include "MMU.h"
 #include "LR35902.h"
 #include "display.h"
@@ -37,9 +39,11 @@
 #define VRAM_READ_MODE_CLOCKS   172
 
 #define SPRITES_PER_LINE        10
+#define PIXEL_FIFO_SIZE         16
 
 #define OAM_SPRITE_SIZE         (_OAM_SIZE / 4)
 #define VRAM_TILE_DATA_SIZE     0x0800
+#define VRAM_NUM_TILE_DATA      3
 #define VRAM_TILE_MAP_SIZE      0x0400
 #define VRAM_NUM_TILE_MAPS      2
 
@@ -56,7 +60,7 @@
 #define WY_ADDRESS      0xFF4A
 #define WX_ADDRESS      0xFF4B
 
-static uint8_t _lcdc = 0x91;
+static uint8_t _lcdc = 0x00;
 static uint8_t _stat = 0x04;
 static uint8_t _scy = 0x00;
 static uint8_t _scx = 0x00;
@@ -79,9 +83,7 @@ struct sprite {
 
 static union {
     struct {
-        uint8_t tile_data_lo0[VRAM_TILE_DATA_SIZE];
-        uint8_t tile_data_hi[VRAM_TILE_DATA_SIZE];
-        uint8_t tile_data_lo1[VRAM_TILE_DATA_SIZE];
+        uint8_t tile_data[VRAM_NUM_TILE_DATA][VRAM_TILE_DATA_SIZE];
         uint8_t tile_map[VRAM_NUM_TILE_MAPS][VRAM_TILE_MAP_SIZE];
     };
     uint8_t raw[_VRAM_SIZE];
@@ -94,6 +96,19 @@ static union {
 
 static struct sprite *_visible_sprites[SPRITES_PER_LINE] = {NULL};
 
+enum fetch_state {
+    FETCH_TILE_NO,
+    FETCH_DATA0,
+    FETCH_DATA1,
+    FETCH_SAVE
+};
+
+enum fetch_source {
+    FETCH_BG,
+    FETCH_WINDOW,
+    FETCH_OBJ
+};
+
 static struct {
     uint8_t scy;
     uint8_t scx;
@@ -104,61 +119,31 @@ static struct {
     uint8_t wx;
 
     struct {
-
+        uint8_t read_ptr;
+        uint8_t write_ptr;
+        int8_t revs;
+        struct {
+            uint8_t data;
+            uint8_t *palette;
+        } pixel[PIXEL_FIFO_SIZE];
+        bool idle;
     } fifo;
 
     struct {
-
+        struct {
+            uint16_t base;
+            uint16_t x_offset;
+            uint16_t y_offset;
+        } address;
+        uint8_t tile_no;
+        uint8_t data0;
+        uint8_t data1;
+        enum fetch_state state;
+        enum fetch_source src;
+        struct sprite *sprite;
+        bool idle;
     } fetch;
 } _pipeline;
-
-/**
- *
- */
-static void pixel_pipeline_reset(void)
-{
-    _pipeline.scy = 0x00;
-    _pipeline.scx = 0x00;
-    _pipeline.ly = 0x00;
-    _pipeline.lx = 0x00;
-    _pipeline.lyc = 0x00;
-    _pipeline.wy = 0x00;
-    _pipeline.wx = 0x00;
-}
-
-/**
- *
- * @return
- */
-static int pixel_pipeline_step(void)
-{
-    // Fetch step
-
-    // FIFO step
-
-    // Return true if we're done with a line
-    return (_pipeline.lx == 160);
-}
-
-/**
- *
- * @param scy
- * @param scx
- * @param ly
- * @param lyc
- * @param wy
- * @param wx
- */
-static void pixel_pipeline_init(uint8_t scy, uint8_t scx, uint8_t ly, uint8_t lyc, uint8_t wy, uint8_t wx)
-{
-    _pipeline.scy = scy;
-    _pipeline.scx = scx;
-    _pipeline.ly = ly;
-    _pipeline.lx = 0x00;
-    _pipeline.lyc = lyc;
-    _pipeline.wy = wy;
-    _pipeline.wx = wx;
-}
 
 /**
  *
@@ -173,6 +158,146 @@ static struct sprite *find_sprite(const uint8_t x)
         }
     }
     return NULL;
+}
+
+/**
+ *
+ */
+static void pixel_pipeline_reset(void)
+{
+    _pipeline.scy = 0x00;
+    _pipeline.scx = 0x00;
+    _pipeline.ly = 0x00;
+    _pipeline.lx = 0x00;
+    _pipeline.lyc = 0x00;
+    _pipeline.wy = 0x00;
+    _pipeline.wx = 0x00;
+
+    _pipeline.fifo.read_ptr = 0;
+    _pipeline.fifo.write_ptr = 0;
+    _pipeline.fifo.revs = 0;
+    _pipeline.fifo.idle = true;
+
+    _pipeline.fetch.state = FETCH_TILE_NO;
+    _pipeline.fetch.src = FETCH_BG;
+    _pipeline.fetch.sprite = NULL;
+    _pipeline.fetch.idle = false;
+}
+
+/**
+ *
+ * @param scy
+ * @param scx
+ * @param ly
+ * @param lyc
+ * @param wy
+ * @param wx
+ */
+static void pixel_pipeline_init(uint8_t scy, uint8_t scx, uint8_t ly, uint8_t lyc, uint8_t wy, uint8_t wx)
+{
+    _pipeline.scy = scy;
+    _pipeline.scx = (uint8_t) (scx & 0x07);
+    _pipeline.ly = ly;
+    _pipeline.lx = 0x00;
+    _pipeline.lyc = lyc;
+    _pipeline.wy = wy;
+    _pipeline.wx = wx;
+
+    _pipeline.fifo.read_ptr = 0;
+    _pipeline.fifo.write_ptr = 0;
+    _pipeline.fifo.revs = 0;
+    _pipeline.fifo.idle = true;
+
+    _pipeline.fetch.state = FETCH_TILE_NO;
+    _pipeline.fetch.src = FETCH_BG;
+    _pipeline.fetch.idle = false;
+
+    _pipeline.fetch.address.base = (uint16_t) ((_lcdc & 0x08) ? 1 : 0);
+    _pipeline.fetch.address.x_offset = (scx >> 3);
+    _pipeline.fetch.address.y_offset = (uint16_t) ((((_ly + _scy) >> 3) & 0x1F) * 0x20);
+}
+
+/**
+ *
+ * @return
+ */
+static bool pixel_pipeline_step(void)
+{
+    size_t fifo_size = (size_t) ((_pipeline.fifo.revs * PIXEL_FIFO_SIZE) + _pipeline.fifo.write_ptr - _pipeline.fifo.read_ptr);
+
+    // FIFO Shift
+    if(!_pipeline.fifo.idle) {
+        uint8_t color_idx = _pipeline.fifo.pixel[_pipeline.fifo.read_ptr].data;
+        uint8_t palette = *_pipeline.fifo.pixel[_pipeline.fifo.read_ptr].palette;
+        _pipeline.fifo.read_ptr++;
+        if(_pipeline.fifo.read_ptr >= PIXEL_FIFO_SIZE) {
+            _pipeline.fifo.revs--;
+            _pipeline.fifo.read_ptr -= PIXEL_FIFO_SIZE;
+        }
+        fifo_size--;
+
+        float color = 1.0f - ((float)((palette >> (color_idx * 2)) & 0x03) / 3.0f);
+        if(!_pipeline.scx) {
+            if((_lcdc & 0x80) && (_lcdc & 0x01)) {
+                _display.lines[_pipeline.ly].dots[_pipeline.lx].r = color;
+                _display.lines[_pipeline.ly].dots[_pipeline.lx].g = color;
+                _display.lines[_pipeline.ly].dots[_pipeline.lx].b = color;
+                _display.lines[_pipeline.ly].dots[_pipeline.lx].a = color;
+            } else {
+                _display.lines[_pipeline.ly].dots[_pipeline.lx].r = 1.0f;
+                _display.lines[_pipeline.ly].dots[_pipeline.lx].g = 1.0f;
+                _display.lines[_pipeline.ly].dots[_pipeline.lx].b = 1.0f;
+                _display.lines[_pipeline.ly].dots[_pipeline.lx].a = 1.0f;
+            }
+            _pipeline.lx++;
+        } else {
+            _pipeline.scx--;
+        }
+    }
+
+    // Fetch
+    if(!_pipeline.fetch.idle) {
+        int tile_idx = ((_pipeline.fetch.tile_no & 0x80) ? 1 : ((_lcdc & 0x10) ? 0 : 2));
+        int tile_data = ((_pipeline.fetch.tile_no & 0x7F) * 0x10) + (((_ly + _scy) & 0x07) * 0x02);
+        switch (_pipeline.fetch.state) {
+            case FETCH_TILE_NO:
+                _pipeline.fetch.tile_no = _vram.tile_map[_pipeline.fetch.address.base][_pipeline.fetch.address.x_offset + _pipeline.fetch.address.y_offset];
+                _pipeline.fetch.state = FETCH_DATA0;
+                break;
+            case FETCH_DATA0:
+                _pipeline.fetch.data0 = _vram.tile_data[tile_idx][tile_data];
+                _pipeline.fetch.state = FETCH_DATA1;
+                break;
+            case FETCH_DATA1:
+                _pipeline.fetch.data1 = _vram.tile_data[tile_idx][tile_data + 1];
+                _pipeline.fetch.state = FETCH_SAVE;
+                break;
+            case FETCH_SAVE:
+                if(_pipeline.fetch.src == FETCH_OBJ) {
+                } else {
+                    if(fifo_size + 8 <= PIXEL_FIFO_SIZE) {
+                        for(int i = 0; i < 8; i++) {
+                            _pipeline.fifo.pixel[_pipeline.fifo.write_ptr].data = (uint8_t) ((((_pipeline.fetch.data0 >> (7 - i)) & 0x01) << 1) | ((_pipeline.fetch.data1 >> (7 - i)) & 0x01));
+                            _pipeline.fifo.pixel[_pipeline.fifo.write_ptr].palette = &_bgp;
+                            _pipeline.fifo.write_ptr++;
+                            if(_pipeline.fifo.write_ptr >= PIXEL_FIFO_SIZE) {
+                                _pipeline.fifo.revs++;
+                                _pipeline.fifo.write_ptr -= PIXEL_FIFO_SIZE;
+                            }
+                            fifo_size++;
+                        }
+                        _pipeline.fifo.idle = (fifo_size <= 8);
+                        _pipeline.fetch.address.x_offset = (uint16_t) ((_pipeline.fetch.address.x_offset + 1) & 0x1F);
+                        _pipeline.fetch.state = FETCH_TILE_NO;
+                    }
+                }
+                break;
+        }
+    }
+    _pipeline.fetch.idle = !_pipeline.fetch.idle;
+
+    // Return true if we're done with a line
+    return (_pipeline.lx == 160);
 }
 
 /**
@@ -263,6 +388,8 @@ void video_write_byte(uint16_t address, uint8_t value)
         case LCDC_ADDRESS:
             if(!(_lcdc & 0x80) && (value & 0x80)) {
                 _ly = 0;
+                _mode_clocks = 0;
+                _stat = (uint8_t) ((_stat & 0xFC) | 0x02);
             }
             _lcdc = value;
             break;
@@ -370,13 +497,10 @@ void video_update(uint8_t clk_tics)
             break;
         case 0x03: // Transferring data to LCD driver
             for(int i = 0; i < clk_tics; i++) {
-                int line_done = pixel_pipeline_step();
+                bool line_done = pixel_pipeline_step();
                 if(line_done) {
                     _mode_clocks -= VRAM_READ_MODE_CLOCKS;
                     _stat = (uint8_t) (_stat & 0xFC);
-
-                    // Reset pixel pipeline
-                    pixel_pipeline_reset();
                     break;
                 }
             }
@@ -400,7 +524,7 @@ void video_update(uint8_t clk_tics)
 
 void video_reset(void)
 {
-    _lcdc = 0x91;
+    _lcdc = 0x00;
     _stat = 0x04;
     _scy = 0x00;
     _scx = 0x00;

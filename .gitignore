@@ -53,7 +53,7 @@ dkms.conf
 
 .idea/
 build/
-cmake-build-debug/
+cmake-build-*/
 
 # auto generated headers
 include/
