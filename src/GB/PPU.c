@@ -214,7 +214,7 @@ static void pixel_pipeline_init(uint8_t scy, uint8_t scx, uint8_t ly, uint8_t ly
 
     _pipeline.fetch.address.base = (uint16_t) ((_lcdc & 0x08) ? 1 : 0);
     _pipeline.fetch.address.x_offset = (scx >> 3);
-    _pipeline.fetch.address.y_offset = (uint16_t) ((((_ly + _scy) >> 3) & 0x1F) * 0x20);
+    _pipeline.fetch.address.y_offset = (uint16_t) ((((ly + scy) >> 3) & 0x1F) * 0x20);
 }
 
 /**
@@ -224,6 +224,23 @@ static void pixel_pipeline_init(uint8_t scy, uint8_t scx, uint8_t ly, uint8_t ly
 static bool pixel_pipeline_step(void)
 {
     size_t fifo_size = (size_t) ((_pipeline.fifo.revs * PIXEL_FIFO_SIZE) + _pipeline.fifo.write_ptr - _pipeline.fifo.read_ptr);
+
+    // Window check
+    if((_lcdc & 0x20) && (_pipeline.wx == _pipeline.lx) && (_pipeline.wy <= _pipeline.ly)) {
+        _pipeline.scx = 0;
+
+        _pipeline.fifo.read_ptr = 0;
+        _pipeline.fifo.write_ptr = 0;
+        _pipeline.fifo.revs = 0;
+        _pipeline.fifo.idle = true;
+
+        _pipeline.fetch.state = FETCH_TILE_NO;
+        _pipeline.fetch.src = FETCH_BG;
+
+        _pipeline.fetch.address.base = (uint16_t) ((_lcdc & 0x40) ? 1 : 0);
+        _pipeline.fetch.address.x_offset = 0;
+        _pipeline.fetch.address.y_offset = (uint16_t) ((((_pipeline.ly - _pipeline.wy) >> 3) & 0x1F) * 0x20);
+    }
 
     // FIFO Shift
     if(!_pipeline.fifo.idle) {
