@@ -52,7 +52,7 @@ enum condition {
 };
 
 struct registers _r = {
-        .sp = 0xFFFE,
+        .sp = 0x0000,
         .pc = 0x0000
 };
 
@@ -431,15 +431,15 @@ static inline void CALL(enum condition c, uint16_t n)
             break;
     }
     _r.clk += 12;
-    write_word(--_r.sp, _r.pc);
-    _r.sp -= 1;
+    _r.sp -= 2;
+    write_word(_r.sp, _r.pc);
     _r.pc = n;
 }
 
 static inline void RST(uint16_t n)
 {
-    write_word(--_r.sp, _r.pc);
-    _r.sp -= 1;
+    _r.sp -= 2;
+    write_word(_r.sp, _r.pc);
     _r.pc = n;
 }
 
@@ -470,8 +470,8 @@ static inline void RET_internal(enum condition c)
             break;
     }
     _r.clk += 12;
-    _r.pc = read_word(++_r.sp);
-    _r.sp += 1;
+    _r.pc = read_word(_r.sp);
+    _r.sp += 2;
 }
 
 static void RETI(void)
@@ -480,6 +480,18 @@ static void RETI(void)
     _r.sp += 2;
     _r.clk += 12;
     _IME = true;
+}
+
+static void PUSH(uint16_t nn)
+{
+    _r.sp -= 2;
+    write_word(_r.sp, nn);
+}
+
+static void POP(uint16_t *nn)
+{
+    *nn = read_word(_r.sp);
+    _r.sp += 2;
 }
 
 /*
@@ -595,8 +607,7 @@ static void LD_B_d8(void)
 
 static void PUSH_BC(void)
 {
-    write_word(--_r.sp, _r.bc);
-    _r.sp -= 1;
+    PUSH(_r.bc);
     _r.clk += 16;
 }
 
@@ -615,8 +626,7 @@ static void RLA(void)
 
 static void POP_BC(void)
 {
-    _r.bc = read_word(++_r.sp);
-    _r.sp += 1;
+    POP(&_r.bc);
     _r.clk += 12;
 }
 
@@ -791,7 +801,9 @@ static void ADD_mHL(void)
 
 static void JP_a16(void)
 {
-    JP(T, read_word(_r.pc++));
+    uint16_t a16 = read_word(_r.pc);
+    _r.pc += 2;
+    JP(T, a16);
     _r.clk += 12;
 }
 
@@ -801,61 +813,642 @@ static void LD_mHL_d8(void)
     _r.clk += 12;
 }
 
+static void LDI_A_mHL(void)
+{
+    _r.a = read_byte(_r.hl++);
+    _r.clk += 8;
+}
+
+static void LD_BC_d16(void)
+{
+    _r.bc = read_word(_r.pc);
+    _r.pc += 2;
+    _r.clk += 12;
+}
+
+static void DEC_BC(void)
+{
+    DEC16(&_r.bc);
+    _r.clk += 8;
+}
+
+static void OR_C(void)
+{
+    OR8(_r.c);
+    _r.clk += 4;
+}
+
+static void PUSH_AF(void)
+{
+    PUSH(_r.af);
+    _r.clk += 16;
+}
+
+static void PUSH_DE(void)
+{
+    PUSH(_r.de);
+    _r.clk += 16;
+}
+
+static void PUSH_HL(void)
+{
+    PUSH(_r.hl);
+    _r.clk += 16;
+}
+
+static void AND_A(void)
+{
+    AND8(_r.a);
+    _r.clk += 4;
+}
+
+static void AND_d8(void)
+{
+    AND8(read_byte(_r.pc++));
+    _r.clk += 8;
+}
+
+static void SWAP_A(void)
+{
+    SWAP(&_r.a);
+    _r.clk += 8;
+}
+
+static void LD_B_A(void)
+{
+    _r.b = _r.a;
+    _r.clk += 4;
+}
+
+static void OR_B(void)
+{
+    OR8(_r.b);
+    _r.clk += 4;
+}
+
+static void XOR_C(void)
+{
+    XOR8(_r.c);
+    _r.clk += 4;
+}
+
+static void AND_C(void)
+{
+    AND8(_r.c);
+    _r.clk += 4;
+}
+
+static void LD_A_C(void)
+{
+    _r.a = _r.c;
+    _r.clk += 4;
+}
+
+static void RST28(void)
+{
+    RST(0x28);
+    _r.clk += 16;
+}
+
+static void ADD_A(void)
+{
+    ADD8(_r.a);
+    _r.clk += 4;
+}
+
+static void POP_HL(void)
+{
+    POP(&_r.hl);
+    _r.clk += 12;
+}
+
+static void LD_E_A(void)
+{
+    _r.e = _r.a;
+    _r.clk += 4;
+}
+
+static void ADD_HL_DE(void)
+{
+    ADD16(&_r.hl, _r.de);
+    _r.clk += 8;
+}
+
+static void LD_E_mHL(void)
+{
+    _r.e = read_byte(_r.hl);
+    _r.clk += 8;
+}
+
+static void LD_D_mHL(void)
+{
+    _r.d = read_byte(_r.hl);
+    _r.clk += 8;
+}
+
+static void JP_mHL(void)
+{
+    JP(T, _r.hl);
+    _r.clk += 4;
+}
+
+static void RES_0_A(void)
+{
+    RES(0, &_r.a);
+    _r.clk += 8;
+}
+
+static void RET_NZ(void)
+{
+    RET_internal(NZ);
+    _r.clk += 8;
+}
+
+static void LD_A_m16(void)
+{
+    uint16_t m16 = read_word(_r.pc);
+    _r.pc += 2;
+    _r.a = read_byte(m16);
+    _r.clk += 16;
+}
+
+static void RET_Z(void)
+{
+    RET_internal(Z);
+    _r.clk += 8;
+}
+
+static void INC_mHL(void)
+{
+    uint8_t mHL = read_byte(_r.hl);
+    INC8(&mHL);
+    write_byte(_r.hl, mHL);
+    _r.clk += 12;
+}
+
+static void INC_A(void)
+{
+    INC8(&_r.a);
+    _r.clk += 4;
+}
+
+static void POP_DE(void)
+{
+    POP(&_r.de);
+    _r.clk += 12;
+}
+
+static void POP_AF(void)
+{
+    POP(&_r.af);
+    _r.clk += 12;
+}
+
+static void LD_mDE_A(void)
+{
+    write_byte(_r.de, _r.a);
+    _r.clk += 8;
+}
+
+static void INC_E(void)
+{
+    INC8(&_r.e);
+    _r.clk += 4;
+}
+
+static void JP_Z_d16(void)
+{
+    uint16_t d16 = read_word(_r.pc);
+    _r.pc += 2;
+    JP(Z, d16);
+    _r.clk += 12;
+}
+
+static void LD_A_mHL(void)
+{
+    _r.a = read_byte(_r.hl);
+    _r.clk += 8;
+}
+
+static void DEC_mHL(void)
+{
+    uint8_t mHL = read_byte(_r.hl);
+    DEC8(&mHL);
+    write_byte(_r.hl, mHL);
+    _r.clk += 12;
+}
+
+static void INC_L(void)
+{
+    INC8(&_r.l);
+    _r.clk += 4;
+}
+
+static void SLA_A(void)
+{
+    SLA(&_r.a);
+    _r.clk += 8;
+}
+
+static void ADD_HL_BC(void)
+{
+    ADD16(&_r.hl, _r.bc);
+    _r.clk += 8;
+}
+
+static void LD_C_mHL(void)
+{
+    _r.c = read_byte(_r.hl);
+    _r.clk += 8;
+}
+
+static void LD_B_mHL(void)
+{
+    _r.b = read_byte(_r.hl);
+    _r.clk += 8;
+}
+
+static void LD_L_C(void)
+{
+    _r.l = _r.c;
+    _r.clk += 4;
+}
+
+static void LD_H_B(void)
+{
+    _r.h = _r.b;
+    _r.clk += 4;
+}
+
+static void LD_A_mBC(void)
+{
+    _r.a = read_byte(_r.bc);
+    _r.clk += 8;
+}
+
+static void INC_BC(void)
+{
+    INC16(&_r.bc);
+    _r.clk += 8;
+}
+
+static void ADD_L(void)
+{
+    ADD8(_r.l);
+    _r.clk += 4;
+}
+
+static void LD_L_A(void)
+{
+    _r.l = _r.a;
+    _r.clk += 4;
+}
+
+static void JP_NZ_d16(void)
+{
+    uint16_t d16 = read_word(_r.pc);
+    _r.pc += 2;
+    JP(NZ, d16);
+    _r.clk += 12;
+}
+
+static void LDD_A_mHL(void)
+{
+    _r.a = read_byte(_r.hl--);
+    _r.clk += 8;
+}
+
+static void LD_A_D(void)
+{
+    _r.a = _r.d;
+    _r.clk += 4;
+}
+
+static void LD_mHL_E(void)
+{
+    write_byte(_r.hl, _r.e);
+    _r.clk += 8;
+}
+
+static void LD_mHL_D(void)
+{
+    write_byte(_r.hl, _r.d);
+    _r.clk += 8;
+}
+
+static void LD_mHL_C(void)
+{
+    write_byte(_r.hl, _r.c);
+    _r.clk += 8;
+}
+
+static void DEC_L(void)
+{
+    DEC8(&_r.l);
+    _r.clk += 4;
+}
+
+static void ADD_d8(void)
+{
+    ADD8(read_byte(_r.pc++));
+    _r.clk += 8;
+}
+
+static void LD_E_L(void)
+{
+    _r.e = _r.l;
+    _r.clk += 4;
+}
+
+static void LD_D_H(void)
+{
+    _r.d = _r.h;
+    _r.clk += 4;
+}
+
+static void BIT_7_A(void)
+{
+    BIT(7, _r.a);
+    _r.clk += 8;
+}
+
+static void OR_d8(void)
+{
+    OR8(read_byte(_r.pc++));
+    _r.clk += 8;
+}
+
+static void RES_0_mHL(void)
+{
+    uint8_t mHL = read_byte(_r.hl);
+    RES(0, &mHL);
+    write_byte(_r.hl, mHL);
+}
+
+static void LD_L_E(void)
+{
+    _r.l = _r.e;
+    _r.clk += 4;
+}
+
+static void LD_H_D(void)
+{
+    _r.h = _r.d;
+    _r.clk += 4;
+}
+
+static void LD_B_B(void)
+{
+    _r.b = _r.b;
+    _r.clk += 4;
+}
+
+static void BIT_2_B(void)
+{
+    BIT(2, _r.b);
+    _r.clk += 8;
+}
+
+static void BIT_4_B(void)
+{
+    BIT(4, _r.b);
+    _r.clk += 8;
+}
+
+static void BIT_5_B(void)
+{
+    BIT(5, _r.b);
+    _r.clk += 8;
+}
+
+static void BIT_3_B(void)
+{
+    BIT(3, _r.b);
+    _r.clk += 8;
+}
+
+static void BIT_7_mHL(void)
+{
+    BIT(7, read_byte(_r.hl));
+    _r.clk += 16;
+}
+
+static void SRL_A(void)
+{
+    SRL(&_r.a);
+    _r.clk += 8;
+}
+
+static void LD_H_d8(void)
+{
+    _r.h = read_byte(_r.pc++);
+    _r.clk += 8;
+}
+
+static void BIT_0_B(void)
+{
+    BIT(0, _r.b);
+    _r.clk += 8;
+}
+
+static void BIT_3_A(void)
+{
+    BIT(3, _r.a);
+    _r.clk += 8;
+}
+
+static void SWAP_E(void)
+{
+    SWAP(&_r.e);
+    _r.clk += 8;
+}
+
+static void RLCA(void)
+{
+    RLC(&_r.a);
+    _r.clk += 4;
+    _r.f &= 0x70;
+}
+
+static void BIT_6_A(void)
+{
+    BIT(6, _r.a);
+    _r.clk += 8;
+}
+
+static void ADD_B(void)
+{
+    ADD8(_r.b);
+    _r.clk += 4;
+}
+
+static void ADC_C(void)
+{
+    ADC8(_r.c);
+    _r.clk += 4;
+}
+
+static void BIT_5_A(void)
+{
+    BIT(5, _r.a);
+    _r.clk += 8;
+}
+
+static void CP_B(void)
+{
+    CP8(_r.b);
+    _r.clk += 4;
+}
+
+static void XOR_B(void)
+{
+    XOR8(_r.b);
+    _r.clk += 4;
+}
+
+static void AND_B(void)
+{
+    AND8(_r.b);
+    _r.clk += 4;
+}
+
+static void BIT_1_B(void)
+{
+    BIT(1, _r.b);
+    _r.clk += 8;
+}
+
+static void BIT_4_C(void)
+{
+    BIT(4, _r.c);
+    _r.clk += 8;
+}
+
+static void BIT_5_C(void)
+{
+    BIT(5, _r.c);
+    _r.clk += 8;
+}
+
+static void SUB_d8(void)
+{
+    SUB8(read_byte(_r.pc++));
+    _r.clk += 8;
+}
+
+static void ADC_mHL(void)
+{
+    ADC8(read_byte(_r.hl));
+    _r.clk += 8;
+}
+
+static void RET_NC(void)
+{
+    RET_internal(NC);
+    _r.clk += 8;
+}
+
+static void CP_C(void)
+{
+    CP8(_r.c);
+    _r.clk += 4;
+}
+
+static void BIT_0_A(void)
+{
+    BIT(0, _r.a);
+    _r.clk += 8;
+}
+
+static void JR_NC_r8(void)
+{
+    JR(NC, read_byte(_r.pc++));
+    _r.clk += 8;
+}
+
+static void LD_H_C(void)
+{
+    _r.h = _r.c;
+    _r.clk += 4;
+}
+
+static void RET_C(void)
+{
+    RET_internal(C);
+    _r.clk += 8;
+}
+
+static void DEC_DE(void)
+{
+    DEC16(&_r.de);
+    _r.clk += 8;
+}
+
+static void OR_A(void)
+{
+    OR8(_r.a);
+    _r.clk += 4;
+}
+
+static void JR_C_r8(void)
+{
+    JR(C, read_byte(_r.pc++));
+    _r.clk += 8;
+}
+
 static instruction _cb_map[NUM_OPCODES] = {
-        YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
-        YY, RL_C, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
-        YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
-        YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
-        YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
-        YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
-        YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
-        YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, BIT_7_H, YY, YY, YY,
-        YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
-        YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
-        YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
-        YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
-        YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
-        YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
-        YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
-        YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
+/* 0x */YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
+/* 1x */YY, RL_C, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
+/* 2x */YY, YY, YY, YY, YY, YY, YY, SLA_A, YY, YY, YY, YY, YY, YY, YY, YY,
+/* 3x */YY, YY, YY, SWAP_E, YY, YY, YY, SWAP_A, YY, YY, YY, YY, YY, YY, YY, SRL_A,
+/* 4x */BIT_0_B, YY, YY, YY, YY, YY, YY, BIT_0_A, BIT_1_B, YY, YY, YY, YY, YY, YY, YY,
+/* 5x */BIT_2_B, YY, YY, YY, YY, YY, YY, YY, BIT_3_B, YY, YY, YY, YY, YY, YY, BIT_3_A,
+/* 6x */BIT_4_B, BIT_4_C, YY, YY, YY, YY, YY, YY, BIT_5_B, BIT_5_C, YY, YY, YY, YY, YY, BIT_5_A,
+/* 7x */YY, YY, YY, YY, YY, YY, YY, BIT_6_A, YY, YY, YY, YY, BIT_7_H, YY, BIT_7_mHL, BIT_7_A,
+/* 8x */YY, YY, YY, YY, YY, YY, RES_0_mHL, RES_0_A, YY, YY, YY, YY, YY, YY, YY, YY,
+/* 9x */YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
+/* Ax */YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
+/* Bx */YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
+/* Cx */YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
+/* Dx */YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
+/* Ex */YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
+/* Fx */YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY, YY,
 };
 
 static void PREFIX_CB(void)
 {
     _cb_map[read_byte(_r.pc++)]();
-    _r.clk += 4;
+//    _r.clk += 4;
 }
 
 static instruction _map[NUM_OPCODES] = {
-        XX, XX, XX, XX, INC_B, DEC_B, LD_B_d8, XX, XX, XX, XX, XX, INC_C, DEC_C, LD_C_d8, XX,
-        XX, LD_DE_d16, XX, INC_DE, XX, DEC_D, LD_D_d8, RLA, JR_r8, XX, LD_A_mDE, XX, XX, DEC_E, LD_E_d8, XX,
-        JR_NZ_r8, LD_HL_d16, LDI_mHL_A, INC_HL, INC_H, XX, XX, XX, JR_Z_r8, XX, XX, XX, XX, XX, LD_L_d8, XX,
-        XX, LD_SP_d16, LDD_HL_A, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, DEC_A, LD_A_d8, XX,
-        XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, LD_C_A,
-        XX, XX, XX, XX, XX, XX, XX, LD_D_A, XX, XX, XX, XX, XX, XX, XX, XX,
-        XX, XX, XX, XX, XX, XX, XX, LD_H_A, XX, XX, XX, XX, XX, XX, XX, XX,
-        XX, XX, XX, XX, XX, XX, XX, LD_mHL_A, LD_A_B, XX, XX, LD_A_E, LD_A_H, LD_A_L, XX, XX,
-        XX, XX, XX, XX, XX, XX, ADD_mHL, XX, XX, XX, XX, XX, XX, XX, XX, XX,
-        SUB_B, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX,
-        XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XOR_A,
-        XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, CP_mHL, XX,
-        XX, POP_BC, XX, XX, XX, PUSH_BC, XX, XX, XX, RET, XX, PREFIX_CB, XX, CALL_a16, XX, XX,
-        XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX,
-        LDH_m8_A, XX, LD_mC_A, XX, XX, XX, XX, XX, XX, XX, LD_m16_A, XX, XX, XX, XX, XX,
-        LDH_A_m8, XX, XX, DI, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, CP_d8, XX,
+/* 0x */NOP, LD_BC_d16, XX, INC_BC, INC_B, DEC_B, LD_B_d8, RLCA, XX, ADD_HL_BC, LD_A_mBC, DEC_BC, INC_C, DEC_C, LD_C_d8, XX,
+/* 1x */XX, LD_DE_d16, LD_mDE_A, INC_DE, XX, DEC_D, LD_D_d8, RLA, JR_r8, ADD_HL_DE, LD_A_mDE, DEC_DE, INC_E, DEC_E, LD_E_d8, XX,
+/* 2x */JR_NZ_r8, LD_HL_d16, LDI_mHL_A, INC_HL, INC_H, XX, LD_H_d8, DAA, JR_Z_r8, XX, LDI_A_mHL, XX, INC_L, DEC_L, LD_L_d8, CPL,
+/* 3x */JR_NC_r8, LD_SP_d16, LDD_HL_A, XX, INC_mHL, DEC_mHL, LD_mHL_d8, XX, JR_C_r8, XX, LDD_A_mHL, XX, INC_A, DEC_A, LD_A_d8, XX,
+/* 4x */LD_B_B, XX, XX, XX, XX, XX, LD_B_mHL, LD_B_A, XX, XX, XX, XX, XX, XX, LD_C_mHL, LD_C_A,
+/* 5x */XX, XX, XX, XX, LD_D_H, XX, LD_D_mHL, LD_D_A, XX, XX, XX, XX, XX, LD_E_L, LD_E_mHL, LD_E_A,
+/* 6x */LD_H_B, LD_H_C, LD_H_D, XX, XX, XX, XX, LD_H_A, XX, LD_L_C, XX, LD_L_E, XX, XX, XX, LD_L_A,
+/* 7x */XX, LD_mHL_C, LD_mHL_D, LD_mHL_E, XX, XX, XX, LD_mHL_A, LD_A_B, LD_A_C, LD_A_D, LD_A_E, LD_A_H, LD_A_L, LD_A_mHL, XX,
+/* 8x */ADD_B, XX, XX, XX, XX, ADD_L, ADD_mHL, ADD_A, XX, ADC_C, XX, XX, XX, XX, ADC_mHL, XX,
+/* 9x */SUB_B, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX, XX,
+/* Ax */AND_B, AND_C, XX, XX, XX, XX, XX, AND_A, XOR_B, XOR_C, XX, XX, XX, XX, XX, XOR_A,
+/* Bx */OR_B, OR_C, XX, XX, XX, XX, XX, OR_A, CP_B, CP_C, XX, XX, XX, XX, CP_mHL, XX,
+/* Cx */RET_NZ, POP_BC, JP_NZ_d16, JP_a16, XX, PUSH_BC, ADD_d8, XX, RET_Z, RET, JP_Z_d16, PREFIX_CB, XX, CALL_a16, XX, XX,
+/* Dx */RET_NC, POP_DE, XX, XX, XX, PUSH_DE, SUB_d8, XX, RET_C, RETI, XX, XX, XX, XX, XX, XX,
+/* Ex */LDH_m8_A, POP_HL, LD_mC_A, XX, XX, PUSH_HL, AND_d8, XX, XX, JP_mHL, LD_m16_A, XX, XX, XX, XX, RST28,
+/* Fx */LDH_A_m8, POP_AF, XX, DI, XX, PUSH_AF, OR_d8, XX, XX, XX, LD_A_m16, EI, XX, XX, CP_d8, XX,
 };
 
 void interrupt(enum int_src src)
 {
-    if(_IME && (_IE & src)) {
-        _IF |= src;
-    }
+    _IF |= src;
     if(src == BUTTON_PRESSED) {
         _STOP = false;
     }
 }
 
-static inline int interrupt_check(void)
+static inline void interrupt_check(void)
 {
     uint8_t interrupt = _IE & _IF;
     if(_IME && interrupt) {
@@ -863,21 +1456,22 @@ static inline int interrupt_check(void)
         _HALT = false;
 
         if(interrupt & VBLANK) {
+            _IF &= ~VBLANK;
             RST(0x40);
         } else if (interrupt & LCDC) {
+            _IF &= ~LCDC;
             RST(0x48);
         } else if(interrupt & TIMER_OVERFLOW) {
+            _IF &= ~TIMER_OVERFLOW;
             RST(0x50);
         } else if(interrupt & SERIAL_TRANSFER) {
+            _IF &= ~SERIAL_TRANSFER;
             RST(0x58);
         } else if(interrupt & BUTTON_PRESSED) {
+            _IF &= ~BUTTON_PRESSED;
             RST(0x60);
-        } else {
-            return 0;
         }
-        return 1;
     }
-    return 0;
 }
 
 void dispatch(void)
@@ -886,18 +1480,19 @@ void dispatch(void)
         bool _local_di = _DI_pending;
         bool _local_ei = _EI_pending;
 
-        if(!interrupt_check()) {
-            if(!_HALT) {
-                _map[read_byte(_r.pc++)]();
-                if(_local_di) {
-                    _IME = false;
-                    _DI_pending = false;
-                }
-                if(_local_ei) {
-                    _IME = true;
-                    _EI_pending = false;
-                }
-            }
+        if(!_HALT) {
+            _map[read_byte(_r.pc++)]();
+        }
+
+        interrupt_check();
+        
+        if(_local_di) {
+            _IME = false;
+            _DI_pending = false;
+        }
+        if(_local_ei) {
+            _IME = true;
+            _EI_pending = false;
         }
     }
 }
