@@ -304,10 +304,10 @@ static void fetch_sprite(const struct sprite *sprite)
             // Insert
             if(sprite->flags & 0x20) {
                 // Horizontal flip
-                _pipeline.sprite_fifo.pixel[idx].data = (uint8_t) ((((data0 >> i) & 0x01) << 1) | ((data1 >> i) & 0x01));
+                _pipeline.sprite_fifo.pixel[idx].data = (uint8_t) (((data0 >> i) & 0x01) | (((data1 >> i) & 0x01) << 1));
                 _pipeline.sprite_fifo.pixel[idx].palette = palette;
             } else {
-                _pipeline.sprite_fifo.pixel[idx].data = (uint8_t) ((((data0 >> (7 - i)) & 0x01) << 1) | ((data1 >> (7 - i)) & 0x01));
+                _pipeline.sprite_fifo.pixel[idx].data = (uint8_t) (((data0 >> (7 - i)) & 0x01) | (((data1 >> (7 - i)) & 0x01) << 1));
                 _pipeline.sprite_fifo.pixel[idx].palette = palette;
             }
         }
@@ -378,7 +378,7 @@ static void fetch_step(size_t *fifo_size)
             case FETCH_SAVE:
                 if(*fifo_size + 8 <= PIXEL_FIFO_SIZE) {
                     for(int i = 0; i < 8; i++) {
-                        _pipeline.pixel_fifo.pixel[_pipeline.pixel_fifo.write_ptr].data = (uint8_t) ((((_pipeline.fetch.data0 >> (7 - i)) & 0x01) << 1) | ((_pipeline.fetch.data1 >> (7 - i)) & 0x01));
+                        _pipeline.pixel_fifo.pixel[_pipeline.pixel_fifo.write_ptr].data = (uint8_t) (((_pipeline.fetch.data0 >> (7 - i)) & 0x01) | (((_pipeline.fetch.data1 >> (7 - i)) & 0x01) << 1));
                         _pipeline.pixel_fifo.pixel[_pipeline.pixel_fifo.write_ptr].palette = &_bgp;
                         _pipeline.pixel_fifo.write_ptr++;
                         if(_pipeline.pixel_fifo.write_ptr >= PIXEL_FIFO_SIZE) {
