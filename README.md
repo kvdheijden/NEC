@@ -17,4 +17,4 @@ Currently in development:
   * Should be changed to using find_package
 * Sound is just weird noise
 * Pokemon Red: After some time of running the emulator it starts hanging -> Memory leak in audio.c, comment SDL_QueueAudio
-* Pokemon Red: GB hangs when losing a fight and blacking out
+* Pokemon Red: GB hangs when losing a fight and blacking out -> Waiting for audio to finish
