@@ -16,5 +16,5 @@ Currently in development:
   * Currently used libraries are glew and SDL
   * Should be changed to using find_package
 * Sound is just weird noise
-* Pokemon Red: After some time of running the emulator it starts hanging -> Memory leak, using 2GB RAM after some time
+* Pokemon Red: After some time of running the emulator it starts hanging -> Memory leak in audio.c, comment SDL_QueueAudio
 * Pokemon Red: GB hangs when losing a fight and blacking out
