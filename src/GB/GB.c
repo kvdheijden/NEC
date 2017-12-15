@@ -31,8 +31,8 @@
 #include "timer.h"
 #include "PPU.h"
 #include "display.h"
-#include "audio.h"
 #include "sound.h"
+#include "audio.h"
 #include "cartridge.h"
 #include "serial.h"
 #include "joypad.h"
@@ -70,37 +70,17 @@ void GB_load_bios(const char *bios_file)
     _state |= BIOS_LOADED;
 }
 
-void GB_load_cartridge(const char *rom_file, const char *save_file)
+void GB_load_cartridge(const char *rom_file, char *save_file)
 {
     if((_state & BIOS_LOADED) != BIOS_LOADED) {
         GB_exit();
         return;
     }
 
-    _rom_ptr = fopen(rom_file, "rb");
-    if(_rom_ptr == NULL) {
-        log_error("Invalid ROM file: %s\n", rom_file);
-        GB_exit();
-        return;
-    }
-
-    int status = set_rom_ptr(_rom_ptr);
+    int status = load_cartridge(rom_file, save_file);
     if(!status) {
         GB_exit();
         return;
-    }
-
-    if(save_file != NULL) {
-        _save_ptr = fopen(save_file, "r+b");
-        if(_save_ptr == NULL) {
-            log_warning("Invalid SAV file: %s\nStarting without save.\n", save_file);
-        } else {
-            status = set_sav_ptr(_save_ptr);
-            if(!status) {
-                GB_exit();
-                return;
-            }
-        }
     }
 
     _state |= CARTRIDGE_LOADED;
@@ -121,7 +101,7 @@ void GB_start(void)
 
     // Setup display and sound
     display_setup();
-    sound_setup();
+    audio_setup();
 
     // Main dispatch loop
     while(_state <= RUNNING) {
@@ -143,11 +123,13 @@ void GB_start(void)
 
     // Destroy display and sound
     display_teardown();
-    sound_teardown();
+    audio_teardown();
 }
 
 void GB_stop(void)
 {
+    unload_cartridge();
+
     if(_save_ptr != NULL) {
         fclose(_save_ptr);
         _save_ptr = NULL;

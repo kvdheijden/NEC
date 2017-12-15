@@ -24,6 +24,7 @@
 #include "PPU.h"
 
 #include <stdbool.h>
+#include <stdlib.h>
 
 #include "MMU.h"
 #include "LR35902.h"
@@ -40,6 +41,10 @@
 
 #define SPRITES_PER_LINE        10
 #define PIXEL_FIFO_SIZE         16
+#define SPRITE_FIFO_SIZE        8
+
+#define SPRITE_X_OFFSET         8
+
 
 #define OAM_SPRITE_SIZE         (_OAM_SIZE / 4)
 #define VRAM_TILE_DATA_SIZE     0x0800
@@ -74,6 +79,10 @@ static uint8_t _wy = 0x00;
 
 static uint32_t _mode_clocks = 0;
 
+static uint8_t _dma_cycle_counter = 0;
+
+static struct display _display;
+
 struct sprite {
     uint8_t y;
     uint8_t x;
@@ -90,7 +99,7 @@ static union {
 } _vram;
 
 static union {
-    struct sprite structured[OAM_SPRITE_SIZE];
+    struct sprite sprites[OAM_SPRITE_SIZE];
     uint8_t raw[_OAM_SIZE];
 } _oam;
 
@@ -103,13 +112,9 @@ enum fetch_state {
     FETCH_SAVE
 };
 
-enum fetch_source {
-    FETCH_BG,
-    FETCH_WINDOW,
-    FETCH_OBJ
-};
-
 static struct {
+    bool in_window;
+
     uint8_t scy;
     uint8_t scx;
     uint8_t ly;
@@ -127,7 +132,15 @@ static struct {
             uint8_t *palette;
         } pixel[PIXEL_FIFO_SIZE];
         bool idle;
-    } fifo;
+    } pixel_fifo;
+
+    struct {
+        uint8_t read_ptr;
+        struct {
+            uint8_t data;
+            uint8_t *palette;
+        } pixel[SPRITE_FIFO_SIZE];
+    } sprite_fifo;
 
     struct {
         struct {
@@ -139,7 +152,6 @@ static struct {
         uint8_t data0;
         uint8_t data1;
         enum fetch_state state;
-        enum fetch_source src;
         struct sprite *sprite;
         bool idle;
     } fetch;
@@ -150,14 +162,29 @@ static struct {
  * @param x
  * @return
  */
-static struct sprite *find_sprite(const uint8_t x)
+static int find_sprite(struct sprite **s, const uint8_t x)
 {
+    int l = 0;
+    *s = NULL;
+
     for(int i = 0; i < SPRITES_PER_LINE; i++) {
-        if(_visible_sprites[i]->x == x) {
-            return _visible_sprites[i];
+        if(_visible_sprites[i] == NULL) {
+            break;
+        }
+        if(*s == NULL) {
+            if(_visible_sprites[i]->x == x + SPRITE_X_OFFSET) {
+                *s = _visible_sprites[i];
+                l = 1;
+            }
+        } else {
+            if(_visible_sprites[i]->x == x + SPRITE_X_OFFSET) {
+                l++;
+            } else {
+                break;
+            }
         }
     }
-    return NULL;
+    return l;
 }
 
 /**
@@ -165,6 +192,8 @@ static struct sprite *find_sprite(const uint8_t x)
  */
 static void pixel_pipeline_reset(void)
 {
+    _pipeline.in_window = false;
+
     _pipeline.scy = 0x00;
     _pipeline.scx = 0x00;
     _pipeline.ly = 0x00;
@@ -173,13 +202,18 @@ static void pixel_pipeline_reset(void)
     _pipeline.wy = 0x00;
     _pipeline.wx = 0x00;
 
-    _pipeline.fifo.read_ptr = 0;
-    _pipeline.fifo.write_ptr = 0;
-    _pipeline.fifo.revs = 0;
-    _pipeline.fifo.idle = true;
+    _pipeline.sprite_fifo.read_ptr = 0;
+    for(int i = 0; i < SPRITE_FIFO_SIZE; i++) {
+        _pipeline.sprite_fifo.pixel[i].data = 0;
+        _pipeline.sprite_fifo.pixel[i].palette = NULL;
+    }
+
+    _pipeline.pixel_fifo.read_ptr = 0;
+    _pipeline.pixel_fifo.write_ptr = 0;
+    _pipeline.pixel_fifo.revs = 0;
+    _pipeline.pixel_fifo.idle = true;
 
     _pipeline.fetch.state = FETCH_TILE_NO;
-    _pipeline.fetch.src = FETCH_BG;
     _pipeline.fetch.sprite = NULL;
     _pipeline.fetch.idle = false;
 }
@@ -195,6 +229,8 @@ static void pixel_pipeline_reset(void)
  */
 static void pixel_pipeline_init(uint8_t scy, uint8_t scx, uint8_t ly, uint8_t lyc, uint8_t wy, uint8_t wx)
 {
+    _pipeline.in_window = false;
+
     _pipeline.scy = scy;
     _pipeline.scx = (uint8_t) (scx & 0x07);
     _pipeline.ly = ly;
@@ -203,13 +239,18 @@ static void pixel_pipeline_init(uint8_t scy, uint8_t scx, uint8_t ly, uint8_t ly
     _pipeline.wy = wy;
     _pipeline.wx = wx;
 
-    _pipeline.fifo.read_ptr = 0;
-    _pipeline.fifo.write_ptr = 0;
-    _pipeline.fifo.revs = 0;
-    _pipeline.fifo.idle = true;
+    _pipeline.sprite_fifo.read_ptr = 0;
+    for(int i = 0; i < SPRITE_FIFO_SIZE; i++) {
+        _pipeline.sprite_fifo.pixel[i].data = 0;
+        _pipeline.sprite_fifo.pixel[i].palette = NULL;
+    }
+
+    _pipeline.pixel_fifo.read_ptr = 0;
+    _pipeline.pixel_fifo.write_ptr = 0;
+    _pipeline.pixel_fifo.revs = 0;
+    _pipeline.pixel_fifo.idle = true;
 
     _pipeline.fetch.state = FETCH_TILE_NO;
-    _pipeline.fetch.src = FETCH_BG;
     _pipeline.fetch.idle = false;
 
     _pipeline.fetch.address.base = (uint16_t) ((_lcdc & 0x08) ? 1 : 0);
@@ -217,43 +258,86 @@ static void pixel_pipeline_init(uint8_t scy, uint8_t scx, uint8_t ly, uint8_t ly
     _pipeline.fetch.address.y_offset = (uint16_t) ((((ly + scy) >> 3) & 0x1F) * 0x20);
 }
 
-/**
- *
- * @return
- */
-static bool pixel_pipeline_step(void)
+static void window_init(void)
 {
-    size_t fifo_size = (size_t) ((_pipeline.fifo.revs * PIXEL_FIFO_SIZE) + _pipeline.fifo.write_ptr - _pipeline.fifo.read_ptr);
+    _pipeline.in_window = true;
+    _pipeline.scx = 0;
 
-    // Window check
-    if((_lcdc & 0x20) && (_pipeline.wx == _pipeline.lx) && (_pipeline.wy <= _pipeline.ly)) {
-        _pipeline.scx = 0;
+    _pipeline.pixel_fifo.read_ptr = 0;
+    _pipeline.pixel_fifo.write_ptr = 0;
+    _pipeline.pixel_fifo.revs = 0;
+    _pipeline.pixel_fifo.idle = true;
 
-        _pipeline.fifo.read_ptr = 0;
-        _pipeline.fifo.write_ptr = 0;
-        _pipeline.fifo.revs = 0;
-        _pipeline.fifo.idle = true;
+    _pipeline.fetch.state = FETCH_TILE_NO;
 
-        _pipeline.fetch.state = FETCH_TILE_NO;
-        _pipeline.fetch.src = FETCH_BG;
+    _pipeline.fetch.address.base = (uint16_t) ((_lcdc & 0x40) ? 1 : 0);
+    _pipeline.fetch.address.x_offset = 0;
+    _pipeline.fetch.address.y_offset = (uint16_t) ((((_pipeline.ly - _pipeline.wy) >> 3) & 0x1F) * 0x20);
+}
 
-        _pipeline.fetch.address.base = (uint16_t) ((_lcdc & 0x40) ? 1 : 0);
-        _pipeline.fetch.address.x_offset = 0;
-        _pipeline.fetch.address.y_offset = (uint16_t) ((((_pipeline.ly - _pipeline.wy) >> 3) & 0x1F) * 0x20);
+static void fetch_sprite(const struct sprite *sprite)
+{
+    const int h = ((_lcdc & 0x04) ? 16 : 8);
+    uint8_t tile_no = (uint8_t) ((h == 16) ? (sprite->code & 0xFE) : sprite->code);
+    uint8_t *tile = &_vram.tile_data[(tile_no & 0x80) ? 1 : 0][(tile_no & 0x7F) * 0x10];
+    uint8_t *palette = &_obp[(sprite->flags & 0x10) ? 1 : 0];
+
+    int row = 0;
+    if(sprite->flags & 0x40) {
+        // Vertical flip
+        row = h - (0x10 + _pipeline.ly - sprite->y);
+    } else {
+        row = (0x10 + _pipeline.ly - sprite->y);
     }
 
-    // FIFO Shift
-    if(!_pipeline.fifo.idle) {
-        uint8_t color_idx = _pipeline.fifo.pixel[_pipeline.fifo.read_ptr].data;
-        uint8_t palette = *_pipeline.fifo.pixel[_pipeline.fifo.read_ptr].palette;
-        _pipeline.fifo.read_ptr++;
-        if(_pipeline.fifo.read_ptr >= PIXEL_FIFO_SIZE) {
-            _pipeline.fifo.revs--;
-            _pipeline.fifo.read_ptr -= PIXEL_FIFO_SIZE;
-        }
-        fifo_size--;
+    uint8_t data0 = tile[row * 2];
+    uint8_t data1 = tile[row * 2 + 1];
 
-        float color = 1.0f - ((float)((palette >> (color_idx * 2)) & 0x03) / 3.0f);
+    for(int i = 0; i < 8; i++) {
+        int idx = (_pipeline.sprite_fifo.read_ptr + i) % SPRITE_FIFO_SIZE;
+        if (((sprite->flags & 0x80) &&
+                (_pipeline.pixel_fifo.pixel[(_pipeline.pixel_fifo.read_ptr + i) % PIXEL_FIFO_SIZE].data == 0) &&
+                (_pipeline.sprite_fifo.pixel[idx].data == 0)) ||
+                (!(sprite->flags & 0x80) &&
+                (_pipeline.sprite_fifo.pixel[idx].data == 0))) {
+
+            // Insert
+            if(sprite->flags & 0x20) {
+                // Horizontal flip
+                _pipeline.sprite_fifo.pixel[idx].data = (uint8_t) ((((data0 >> i) & 0x01) << 1) | ((data1 >> i) & 0x01));
+                _pipeline.sprite_fifo.pixel[idx].palette = palette;
+            } else {
+                _pipeline.sprite_fifo.pixel[idx].data = (uint8_t) ((((data0 >> (7 - i)) & 0x01) << 1) | ((data1 >> (7 - i)) & 0x01));
+                _pipeline.sprite_fifo.pixel[idx].palette = palette;
+            }
+        }
+    }
+}
+
+static void fifo_step(size_t *fifo_size)
+{
+    if(!_pipeline.pixel_fifo.idle) {
+        uint8_t color_idx = _pipeline.pixel_fifo.pixel[_pipeline.pixel_fifo.read_ptr].data;
+        uint8_t *palette = _pipeline.pixel_fifo.pixel[_pipeline.pixel_fifo.read_ptr].palette;
+        _pipeline.pixel_fifo.read_ptr++;
+        if(_pipeline.pixel_fifo.read_ptr >= PIXEL_FIFO_SIZE) {
+            _pipeline.pixel_fifo.revs--;
+            _pipeline.pixel_fifo.read_ptr -= PIXEL_FIFO_SIZE;
+        }
+        (*fifo_size)--;
+
+        uint8_t sprite_color_idx = _pipeline.sprite_fifo.pixel[_pipeline.sprite_fifo.read_ptr].data;
+        uint8_t *sprite_palette = _pipeline.sprite_fifo.pixel[_pipeline.sprite_fifo.read_ptr].palette;
+        _pipeline.sprite_fifo.pixel[_pipeline.sprite_fifo.read_ptr].data = 0;
+        _pipeline.sprite_fifo.read_ptr = (uint8_t) ((_pipeline.sprite_fifo.read_ptr + 1) % SPRITE_FIFO_SIZE);
+
+        float color;
+        if(sprite_color_idx != 0) {
+            color = 1.0f - ((float)((*sprite_palette >> (sprite_color_idx * 2)) & 0x03) / 3.0f);
+        } else {
+            color = 1.0f - ((float)((*palette >> (color_idx * 2)) & 0x03) / 3.0f);
+        }
+
         if(!_pipeline.scx) {
             if((_lcdc & 0x80) && (_lcdc & 0x01)) {
                 _display.lines[_pipeline.ly].dots[_pipeline.lx].r = color;
@@ -271,8 +355,10 @@ static bool pixel_pipeline_step(void)
             _pipeline.scx--;
         }
     }
+}
 
-    // Fetch
+static void fetch_step(size_t *fifo_size)
+{
     if(!_pipeline.fetch.idle) {
         int tile_idx = ((_pipeline.fetch.tile_no & 0x80) ? 1 : ((_lcdc & 0x10) ? 0 : 2));
         int tile_data = ((_pipeline.fetch.tile_no & 0x7F) * 0x10) + (((_ly + _scy) & 0x07) * 0x02);
@@ -290,31 +376,85 @@ static bool pixel_pipeline_step(void)
                 _pipeline.fetch.state = FETCH_SAVE;
                 break;
             case FETCH_SAVE:
-                if(_pipeline.fetch.src == FETCH_OBJ) {
-                } else {
-                    if(fifo_size + 8 <= PIXEL_FIFO_SIZE) {
-                        for(int i = 0; i < 8; i++) {
-                            _pipeline.fifo.pixel[_pipeline.fifo.write_ptr].data = (uint8_t) ((((_pipeline.fetch.data0 >> (7 - i)) & 0x01) << 1) | ((_pipeline.fetch.data1 >> (7 - i)) & 0x01));
-                            _pipeline.fifo.pixel[_pipeline.fifo.write_ptr].palette = &_bgp;
-                            _pipeline.fifo.write_ptr++;
-                            if(_pipeline.fifo.write_ptr >= PIXEL_FIFO_SIZE) {
-                                _pipeline.fifo.revs++;
-                                _pipeline.fifo.write_ptr -= PIXEL_FIFO_SIZE;
-                            }
-                            fifo_size++;
+                if(*fifo_size + 8 <= PIXEL_FIFO_SIZE) {
+                    for(int i = 0; i < 8; i++) {
+                        _pipeline.pixel_fifo.pixel[_pipeline.pixel_fifo.write_ptr].data = (uint8_t) ((((_pipeline.fetch.data0 >> (7 - i)) & 0x01) << 1) | ((_pipeline.fetch.data1 >> (7 - i)) & 0x01));
+                        _pipeline.pixel_fifo.pixel[_pipeline.pixel_fifo.write_ptr].palette = &_bgp;
+                        _pipeline.pixel_fifo.write_ptr++;
+                        if(_pipeline.pixel_fifo.write_ptr >= PIXEL_FIFO_SIZE) {
+                            _pipeline.pixel_fifo.revs++;
+                            _pipeline.pixel_fifo.write_ptr -= PIXEL_FIFO_SIZE;
                         }
-                        _pipeline.fifo.idle = (fifo_size <= 8);
-                        _pipeline.fetch.address.x_offset = (uint16_t) ((_pipeline.fetch.address.x_offset + 1) & 0x1F);
-                        _pipeline.fetch.state = FETCH_TILE_NO;
+                        (*fifo_size)++;
                     }
+                    _pipeline.pixel_fifo.idle = (*fifo_size <= 8);
+                    _pipeline.fetch.address.x_offset = (uint16_t) ((_pipeline.fetch.address.x_offset + 1) & 0x1F);
+                    _pipeline.fetch.state = FETCH_TILE_NO;
                 }
                 break;
         }
     }
     _pipeline.fetch.idle = !_pipeline.fetch.idle;
+}
+
+/**
+ *
+ * @return
+ */
+static bool pixel_pipeline_step(void)
+{
+    size_t fifo_size = (size_t) ((_pipeline.pixel_fifo.revs * PIXEL_FIFO_SIZE) + _pipeline.pixel_fifo.write_ptr - _pipeline.pixel_fifo.read_ptr);
+
+    // Window check
+    if((_lcdc & 0x20) && (_pipeline.wx == _pipeline.lx + 0x07) && (_pipeline.wy <= _pipeline.ly) && !_pipeline.in_window) {
+        window_init();
+    }
+
+    struct sprite *s;
+    int num_sprites = find_sprite(&s, _pipeline.lx);
+    if(fifo_size >= 8 && (_lcdc & 0x02) && num_sprites) {
+        for(int i = 0; i < num_sprites; i++) {
+            fetch_sprite(s + i);
+        }
+    }
+
+    // FIFO Shift
+    fifo_step(&fifo_size);
+
+    // Fetch
+    fetch_step(&fifo_size);
 
     // Return true if we're done with a line
     return (_pipeline.lx == 160);
+}
+
+static int compare( const void *a, const void *b )
+{
+    struct sprite *s1 = *(struct sprite **)a;
+    struct sprite *s2 = *(struct sprite **)b;
+
+    if(s1 == NULL && s2 == NULL) {
+        return 0;
+    }
+    if(s1 == NULL) {
+        return 1;
+    }
+    if(s2 == NULL) {
+        return -1;
+    }
+
+    if(s1->x < s2->x) {
+        return -1;
+    } else if(s1->x < s2->x) {
+        return 1;
+    }
+
+    if(s1 < s2) {
+        return -1;
+    } else if(s1 > s2) {
+        return 1;
+    }
+    return 0;
 }
 
 /**
@@ -323,18 +463,20 @@ static bool pixel_pipeline_step(void)
 static void OAM_search(void)
 {
     int s = 0;
-    const int h = ((_lcdc & 0x04) ? 0x10 : 0x08);
+    const int h = ((_lcdc & 0x04) ? 16 : 8);
     for(int i = 0; i < OAM_SPRITE_SIZE; i++) {
-        if(_oam.structured[i].x && ((_ly + 0x10) >= _oam.structured[i].y) && ((_ly + 0x10) < (_oam.structured[i].y + h))) {
-            _visible_sprites[s++] = &_oam.structured[i];
+        if(_oam.sprites[i].x && ((_ly + 0x10) >= _oam.sprites[i].y) && ((_ly + 0x10) < (_oam.sprites[i].y + h))) {
+            _visible_sprites[s++] = &_oam.sprites[i];
             if(s == SPRITES_PER_LINE) {
-                return;
+                break;
             }
         }
     }
     while (s < SPRITES_PER_LINE) {
         _visible_sprites[s++] = NULL;
     }
+
+    qsort(_visible_sprites, 10, sizeof(struct sprite *), compare);
 }
 
 uint8_t vram_read_byte(uint16_t address)
@@ -354,6 +496,7 @@ void vram_write_byte(uint16_t address, uint8_t value)
 
 uint8_t oam_read_byte(uint16_t address)
 {
+    log_error("Direct read from OAM RAM\n");
     if (((_stat & 0x03) <= 0x01) || !(_lcdc & 0x80)) {
         return _oam.raw[address - _OAM_OFFSET];
     }
@@ -362,6 +505,7 @@ uint8_t oam_read_byte(uint16_t address)
 
 void oam_write_byte(uint16_t address, uint8_t value)
 {
+    log_error("Direct write to OAM RAM\n");
     if (((_stat & 0x03) <= 0x01) || !(_lcdc & 0x80)) {
         _oam.raw[address - _OAM_OFFSET] = value;
     }
@@ -427,6 +571,7 @@ void video_write_byte(uint16_t address, uint8_t value)
             break;
         case DMA_ADDRESS:
             _dma = value;
+            _dma_cycle_counter = 160;
             break;
         case BGP_ADDRESS:
             _bgp = value;
@@ -464,6 +609,28 @@ void video_update(uint8_t clk_tics)
 {
     _mode_clocks += clk_tics;
 
+    for(int i = 0; i < clk_tics; i++) {
+        if(_dma_cycle_counter) {
+            int idx = _OAM_SIZE - _dma_cycle_counter;
+            int src = (_dma * 0x100);
+            switch (src & 0xF000) {
+                case 0x8000:
+                case 0x9000:
+                    _oam.raw[idx] = _vram.raw[src - _VRAM_OFFSET + idx];
+                    break;
+                case 0xA000:
+                case 0xB000:
+                case 0xC000:
+                case 0xD000:
+                    _oam.raw[idx] = read_byte((uint16_t) (src + idx));
+                    break;
+                default:
+                    break;
+            }
+            _dma_cycle_counter--;
+        }
+    }
+
     switch (_stat & 0x03) {
         default:
         case 0x00: // HBLANK
@@ -478,7 +645,7 @@ void video_update(uint8_t clk_tics)
                     _stat = (uint8_t) ((_stat & 0xFC) | 0x01);
 
                     // Starting VBLANK period
-                    display_frame();
+                    display_frame(&_display);
                     sync_frame();
                     interrupt(VBLANK);
                 } else {
@@ -553,6 +720,8 @@ void video_reset(void)
     _obp[1] = 0x00;
     _wx = 0x00;
     _wy = 0x00;
+
+    _dma_cycle_counter = 0;
 
     _mode_clocks = 0;
     pixel_pipeline_reset();

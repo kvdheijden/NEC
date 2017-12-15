@@ -40,8 +40,6 @@ static GLint _texture_uniform_location;
 #define NUM_VERTICES    4
 #define NUM_INDICES     6
 
-struct display _display;
-
 static const struct _vertex_position {
     GLfloat x;
     GLfloat y;
@@ -190,13 +188,13 @@ void display_setup(void)
     glDeleteShader(_fragment_shader);
 }
 
-void display_frame(void)
+void display_frame(struct display *_display)
 {
     glClear(GL_COLOR_BUFFER_BIT);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, _texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, TEXTURE_DIMENSION, TEXTURE_DIMENSION, 0, GL_RGBA, GL_FLOAT, &_display);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, TEXTURE_DIMENSION, TEXTURE_DIMENSION, 0, GL_RGBA, GL_FLOAT, _display);
     glUniform1i(_texture_uniform_location, 0);
 
     glBindBuffer(GL_ARRAY_BUFFER, _vbo[0]);

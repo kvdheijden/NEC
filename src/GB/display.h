@@ -52,8 +52,6 @@ struct display {
     struct line lines[TEXTURE_DIMENSION];
 };
 
-extern struct display _display;
-
 /**
  *
  */
@@ -62,7 +60,7 @@ void display_setup(void);
 /**
  *
  */
-void display_frame(void);
+void display_frame(struct display *_display);
 
 /**
  *

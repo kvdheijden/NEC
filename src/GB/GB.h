@@ -62,7 +62,7 @@ void GB_load_bios(const char *bios_file);
  *
  * @param bios_file
  */
-void GB_load_cartridge(const char *rom_file, const char *save_file);
+void GB_load_cartridge(const char *rom_file, char *save_file);
 
 /**
  *
@@ -124,5 +124,11 @@ extern void serial_transfer_initiate(uint8_t data);
  * @param data
  */
 void serial_transfer_complete(uint8_t data);
+
+/**
+ *
+ * @param title
+ */
+extern void set_title(const char *title);
 
 #endif /* NEC_GB_H */

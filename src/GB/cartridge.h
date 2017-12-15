@@ -28,9 +28,9 @@
 
 #include "MMU.h"
 
-int set_rom_ptr(FILE *rom);
+int load_cartridge(const char *_rom_ptr, char *sav);
 
-int set_sav_ptr(FILE *sav);
+void unload_cartridge(void);
 
 uint8_t rom_read_byte(uint16_t address);
 
@@ -41,5 +41,7 @@ uint8_t ext_ram_read_byte(uint16_t address);
 void ext_ram_write_byte(uint16_t address, uint8_t value);
 
 void mbc_reset(void);
+
+float get_vin(void);
 
 #endif //NEC_CARTRIDGE_H

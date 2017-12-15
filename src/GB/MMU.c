@@ -27,7 +27,7 @@
 #include "LR35902.h"
 #include "cartridge.h"
 #include "PPU.h"
-#include "audio.h"
+#include "sound.h"
 #include "joypad.h"
 #include "serial.h"
 #include "timer.h"
@@ -71,7 +71,7 @@ uint8_t read_byte(uint16_t address)
                 case 0x10:
                 case 0x20:
                 case 0x30:
-                    return audio_read_byte(address);
+                    return sound_read_byte(address);
                 case 0x40:
                     return video_read_byte(address);
                 case 0x50:
@@ -134,7 +134,7 @@ void write_byte(uint16_t address, uint8_t value)
                 case 0x10:
                 case 0x20:
                 case 0x30:
-                    audio_write_byte(address, value);
+                    sound_write_byte(address, value);
                     break;
                 case 0x40:
                     video_write_byte(address, value);

@@ -21,33 +21,39 @@
  * SOFTWARE.
  */
 
-#ifndef NEC_AUDIO_H
-#define NEC_AUDIO_H
+#ifndef NEC_SOUND_H
+#define NEC_SOUND_H
 
 #include <stdint.h>
 
-/**
- *
- * @param address
- * @return
- */
-uint8_t audio_read_byte(uint16_t address);
-
-/**
- *
- * @param address
- * @param value
- */
-void audio_write_byte(uint16_t address, uint8_t value);
+struct sound {
+    int8_t S01;
+    int8_t S02;
+};
 
 /**
  *
  */
-void audio_update(uint8_t clk_tics);
+void audio_setup(void);
 
 /**
  *
  */
-void audio_reset(void);
+void audio_enable(void);
 
-#endif //NEC_AUDIO_H
+/**
+ *
+ */
+void audio_disable(void);
+
+/**
+ *
+ */
+void audio_play(struct sound *_sound);
+
+/**
+ *
+ */
+void audio_teardown(void);
+
+#endif //NEC_SOUND_H
