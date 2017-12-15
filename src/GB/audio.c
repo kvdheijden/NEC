@@ -61,7 +61,7 @@ void audio_disable(void)
 
 void audio_play(struct sound *_sound)
 {
-    SDL_QueueAudio(_audio_device, _sound, sizeof(struct sound));
+    //SDL_QueueAudio(_audio_device, _sound, sizeof(struct sound));
 }
 
 void audio_teardown(void)
