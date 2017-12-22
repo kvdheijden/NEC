@@ -353,6 +353,28 @@ static void mbc3_write_rom(uint16_t address, uint8_t value)
     mbc3_load_rom_bank(_mbc3.rom_bank);
 }
 
+static FILE *create_sav_file(const char *rom)
+{
+    FILE *_sav_ptr;
+    const char *filepath = strrchr(rom, '.');
+    size_t i = filepath - rom;
+    char new_save_file[i + 5];
+    memcpy(new_save_file, rom, i + 1);
+    new_save_file[i + 1] = 's';
+    new_save_file[i + 2] = 'a';
+    new_save_file[i + 3] = 'v';
+    new_save_file[i + 4] = '\0';
+
+    _sav_ptr = fopen(new_save_file, "w+b");
+    if(_sav_ptr == NULL) {
+        log_error("SAV file could not be opened %d.\n", errno);
+        return 0;
+    }
+
+    init_save_file(_sav_ptr);
+    return _sav_ptr;
+}
+
 int load_cartridge(const char *rom, char *sav)
 {
     FILE *_rom_ptr = fopen(rom, "rb");
@@ -398,27 +420,11 @@ int load_cartridge(const char *rom, char *sav)
     if(has_extram()) {
         FILE *_sav_ptr;
         if(sav == NULL) {
-            const char *filepath = strrchr(rom, '.');
-            size_t i = filepath - rom;
-            char new_save_file[i + 5];
-            memcpy(new_save_file, rom, i + 1);
-            new_save_file[i + 1] = 's';
-            new_save_file[i + 2] = 'a';
-            new_save_file[i + 3] = 'v';
-            new_save_file[i + 4] = '\0';
-
-            _sav_ptr = fopen(new_save_file, "w+b");
-            if(_sav_ptr == NULL) {
-                log_error("SAV file could not be opened %d.\n", errno);
-                return 0;
-            }
-
-            init_save_file(_sav_ptr);
+            _sav_ptr = create_sav_file(rom);
         } else {
             _sav_ptr = fopen(sav, "r+b");
             if(_sav_ptr == NULL) {
-                log_error("SAV file could not be opened %d.\n", errno);
-                return 0;
+                _sav_ptr = create_sav_file(rom);
             }
         }
 
@@ -621,7 +627,7 @@ void ext_ram_write_byte(uint16_t address, uint8_t value)
     }
 }
 
-float get_vin(void)
+int8_t get_vin(void)
 {
     return 0;
 }

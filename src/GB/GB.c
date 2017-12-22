@@ -72,7 +72,7 @@ void GB_load_bios(const char *bios_file)
 
 void GB_load_cartridge(const char *rom_file, char *save_file)
 {
-    if((_state & BIOS_LOADED) != BIOS_LOADED) {
+    if(!(_state & BIOS_LOADED)) {
         GB_exit();
         return;
     }
@@ -93,7 +93,7 @@ void GB_start(void)
         return;
     }
 
-    if((_state & BIOS_LOADED) != BIOS_LOADED) {
+    if(!(_state & BIOS_LOADED)) {
         log_error("BIOS not yet loaded.\n");
         GB_exit();
         return;

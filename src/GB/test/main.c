@@ -31,7 +31,7 @@
 #include "../GB.h"
 
 #define PROGRAM_NAME    "NEC-GameBoy"
-#define V_SYNC           0
+#define V_SYNC           1
 
 static SDL_Window* window;
 static SDL_GLContext gl_context;
@@ -87,12 +87,14 @@ static void do_key_down(SDL_KeyboardEvent event)
             key_pressed(B);
             break;
         case SDLK_BACKSPACE:
-        case SDLK_SPACE:
             key_pressed(SELECT);
             break;
         case SDLK_ESCAPE:
         case SDLK_RETURN:
             key_pressed(START);
+            break;
+        case SDLK_SPACE:
+            SDL_GL_SetSwapInterval(0);
             break;
         default:
             break;
@@ -125,12 +127,14 @@ static void do_key_up(SDL_KeyboardEvent event)
             key_released(B);
             break;
         case SDLK_BACKSPACE:
-        case SDLK_SPACE:
             key_released(SELECT);
             break;
         case SDLK_ESCAPE:
         case SDLK_RETURN:
             key_released(START);
+            break;
+        case SDLK_SPACE:
+            SDL_GL_SetSwapInterval(1);
             break;
         default:
             break;
@@ -229,7 +233,9 @@ int main(int argc, char *argv[])
     init_window();
 
     GB_load_bios(argv[1]);
-    if(argc == 3) {
+    if(argc == 2) {
+        GB_load_cartridge(NULL, NULL);
+    } else if(argc == 3) {
         GB_load_cartridge(argv[2], NULL);
     } else if(argc == 4) {
         GB_load_cartridge(argv[2], argv[3]);

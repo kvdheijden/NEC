@@ -42,6 +42,6 @@ void ext_ram_write_byte(uint16_t address, uint8_t value);
 
 void mbc_reset(void);
 
-float get_vin(void);
+int8_t get_vin(void);
 
 #endif //NEC_CARTRIDGE_H

@@ -27,8 +27,14 @@
 #include <stdint.h>
 
 struct sound {
-    int8_t S01;
-    int8_t S02;
+    int8_t mix_left;
+    int8_t mix_right;
+
+    int8_t vin_left;
+    int8_t vin_right;
+
+    int8_t volume_left;
+    int8_t volume_right;
 };
 
 /**

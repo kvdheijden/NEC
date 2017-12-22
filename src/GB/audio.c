@@ -26,24 +26,45 @@
 
 #include <SDL2/SDL.h>
 
-static SDL_AudioDeviceID _audio_device;
+#define AUDIO_SRC_FREQ      524288
+#define AUDIO_SRC_FORMAT    AUDIO_S8
+#define AUDIO_SRC_CHANNELS  2
+#define AUDIO_SRC_SAMPLES   8
 
-static SDL_AudioSpec _have;
+static SDL_AudioDeviceID _audio_device;
+static SDL_AudioStream *_audio_stream;
+
+static void audio_callback(void *unused, Uint8 *stream, int len)
+{
+    // TODO: Empty buffer (for some part)
+    // Too many samples are generated if VSYNC is turned off.
+    // This means we're filling the buffer as soon as we're using fast forward
+    // We should playback quicker if this happens
+    SDL_AudioStreamGet(_audio_stream, stream, len);
+}
 
 void audio_setup(void)
 {
     const SDL_AudioSpec _want = {
-            .freq = 48000,
-            .format = AUDIO_S8,
-            .channels = 2,
-            .samples = 1,
-            .callback = NULL,
+            .freq = AUDIO_SRC_FREQ,
+            .format = AUDIO_SRC_FORMAT,
+            .channels = AUDIO_SRC_CHANNELS,
+            .samples = AUDIO_SRC_SAMPLES,
+            .callback = audio_callback,
             .userdata = NULL
     };
+    SDL_AudioSpec _have;
 
-    _audio_device = SDL_OpenAudioDevice(NULL, 0, &_want, &_have, 0);
+    _audio_device = SDL_OpenAudioDevice(NULL, 0, &_want, &_have, SDL_AUDIO_ALLOW_ANY_CHANGE);
     if(_audio_device == 0) {
-        log_error("Could not retrieve a valid audio device.");
+        log_error("Could not retrieve a valid audio device: %s.\n", SDL_GetError());
+        GB_exit();
+        return;
+    }
+
+    _audio_stream = SDL_NewAudioStream(AUDIO_SRC_FORMAT, AUDIO_SRC_CHANNELS, AUDIO_SRC_FREQ, _have.format, _have.channels, _have.freq);
+    if(_audio_stream == NULL) {
+        log_error("Could not initialize audio stream: %s.\n", SDL_GetError());
         GB_exit();
         return;
     }
@@ -51,21 +72,45 @@ void audio_setup(void)
 
 void audio_enable(void)
 {
+    SDL_AudioStreamClear(_audio_stream);
+    SDL_ClearQueuedAudio(_audio_device);
     SDL_PauseAudioDevice(_audio_device, 0);
 }
 
 void audio_disable(void)
 {
+    SDL_AudioStreamClear(_audio_stream);
+    SDL_ClearQueuedAudio(_audio_device);
     SDL_PauseAudioDevice(_audio_device, 1);
 }
 
 void audio_play(struct sound *_sound)
 {
-    //SDL_QueueAudio(_audio_device, _sound, sizeof(struct sound));
+    if(SDL_GetAudioDeviceStatus(_audio_device) != SDL_AUDIO_PLAYING) {
+        return;
+    }
+
+    int8_t data[2] = {0, 0};
+
+    SDL_MixAudioFormat((Uint8 *) &data[0], (const Uint8 *) &_sound->vin_left, AUDIO_SRC_FORMAT, 1, _sound->volume_left * 0x10);
+    SDL_MixAudioFormat((Uint8 *) &data[0], (const Uint8 *) &_sound->mix_left, AUDIO_SRC_FORMAT, 1, _sound->volume_left * 0x10);
+
+    SDL_MixAudioFormat((Uint8 *) &data[1], (const Uint8 *) &_sound->vin_right, AUDIO_SRC_FORMAT, 1, _sound->volume_right * 0x10);
+    SDL_MixAudioFormat((Uint8 *) &data[1], (const Uint8 *) &_sound->mix_right, AUDIO_SRC_FORMAT, 1, _sound->volume_right * 0x10);
+
+    if(SDL_AudioStreamPut(_audio_stream, data, 2) < 0) {
+        log_warning("Invalid write to stream: %s\n", SDL_GetError());
+    }
+
 }
 
 void audio_teardown(void)
 {
+    if(_audio_stream != NULL) {
+        SDL_AudioStreamClear(_audio_stream);
+        SDL_FreeAudioStream(_audio_stream);
+    }
+
     if(_audio_device != 0) {
         SDL_CloseAudioDevice(_audio_device);
     }

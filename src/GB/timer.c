@@ -30,18 +30,18 @@
 #define TMA         0xFF06
 #define TAC         0xFF07
 
-#define _TIMER_CLK_MAX      262144
-#define _BASE_CLK_DIV       4
-#define _4096HZ_DIV         64
-#define _16384HZ_DIV        16
-#define _65536HZ_DIV        4
+#define _TIMER_CLK_MAX      4194304
+#define _4096HZ_DIV         1024
+#define _16384HZ_DIV        256
+#define _65536HZ_DIV        64
+#define _262144HZ_DIV       16
 
 static uint8_t _div = 0x00;
 static uint8_t _tima = 0x00;
 static uint8_t _tma = 0x00;
 static uint8_t _tac = 0x00;
 
-static uint32_t _timer_clk = 0;     // 262144Hz
+static uint32_t _timer_clk = 0; // 4,194,304Hz
 
 uint8_t timer_read_byte(uint16_t address)
 {
@@ -92,7 +92,7 @@ void timer_update(uint8_t clk_tics)
     uint32_t _old_timer_clk = _timer_clk;
 
     // Increment counter/clock
-    _timer_clk += (clk_tics / _BASE_CLK_DIV);
+    _timer_clk += clk_tics;
 
     // DIV update
     _div += ((_timer_clk / _16384HZ_DIV) - (_old_timer_clk / _16384HZ_DIV));
@@ -101,18 +101,19 @@ void timer_update(uint8_t clk_tics)
     int steps = 0;
     if( _tac & 0x04 ) {
         switch( _tac & 0x03 ) {
-            default:
             case 0x00:
                 steps = ((_timer_clk / _4096HZ_DIV) - (_old_timer_clk / _4096HZ_DIV));
                 break;
             case 0x01:
-                steps = (_timer_clk - _old_timer_clk);
+                steps = ((_timer_clk / _262144HZ_DIV) - (_old_timer_clk / _262144HZ_DIV));
                 break;
             case 0x02:
                 steps = ((_timer_clk / _65536HZ_DIV) - (_old_timer_clk / _65536HZ_DIV));
                 break;
             case 0x03:
                 steps = ((_timer_clk / _16384HZ_DIV) - (_old_timer_clk / _16384HZ_DIV));
+                break;
+            default:
                 break;
         }
 
